@@ -2,8 +2,8 @@
 ###Vibrations2###
 This class performing the vibrational calculation two times:
 1st: Calculating Hessian (H) in cartesian coordinate (x, y, z) using ASE vibrations module
-2nd: Refining the H in the normal coordinate (qi)
-In both case H is approximated using finite difference methods. 
+2nd: Refining the eigen value (omega2) in the normal coordinate (qi)
+In both case the derivative of forces is approximated using finite difference methods. 
 
 Many part of the code are copied from ASE. 
 https://databases.fysik.dtu.dk/ase/ase/vibrations/vibrations.html
@@ -57,10 +57,10 @@ Input parameter
 
     FD_method: str
         default="forces"
-        "forces": Use finite difference of forces to calculate H
-                    H[i] =  (f_min_q - f_plus_q)/(2*disp) 
+        "forces": Use finite difference of forces
+                    omega2 =  (f_min_q - f_plus_q)/(2*disp) 
         "energy": Use finite difference of energy to calculate H. This is just experimental. Not recommended to use. 
-                    H[i,i] = (e_min + e_plus - 2 * e_eq)/(disp)**2
+                    omega2 = (e_min + e_plus - 2 * e_eq)/(disp)**2
 
     fmax: float
         default=2e-3 Ry/Bohr
@@ -174,10 +174,10 @@ class Vibrations2():
         vib.run()
         
         if self.vib1_summary:
-            print('Summary of the vibrational analysis using \n displacement in cartesian coordinate (x, y, z).\n')
+            print('Summary of the vibrational analysis by \n displacement in cartesian coordinate (x, y, z).\n')
             vib.summary()
         
-        print('\nCalcualting the vibrational analysis using \n displacement in normal coordinate (Qi) . . . \n')
+        print('\nCalcualting the vibrational analysis by \n displacement in normal coordinate (Qi) . . . \n')
         return vib
         
     def run(self):        
@@ -215,18 +215,15 @@ class Vibrations2():
             pass
         os.chdir(self.name2)
         
-        # Calculate the forces of the displaced atoms along normal coordinate qi, then calculate the H(qi,qj)
+        # Calculate the forces of the displaced atoms along normal coordinate qi, then calculate omega2
 
-        H = np.zeros((len(modes), len(modes)))
+        omega2 = np.zeros(len(modes))
         i = len(modes) - 1
         e_eq = self.atoms.get_potential_energy()
+
         for _ in range(Nmode):
             factor = self.get_amplitude(energies[i], mu[i])
             displacement = factor*modes[i]       
-
-            # Get the transformation matrix from the normal modes. This matrix transform  (x, y, z) to qi
-            Transform = np.array([mode[self.indices] for mode in modes])
-            Transform = Transform.reshape((len(modes), len(modes)))
 
             # Copy the atomic structure and make displacement in +Q direction 
             try:
@@ -238,9 +235,7 @@ class Vibrations2():
                 atoms_displaced_plus.get_potential_energy()
                 atoms_displaced_plus.write(f'disp{i}_plus.xyz')            
             e_plus = atoms_displaced_plus.get_potential_energy()
-            f_plus =  atoms_displaced_plus.get_forces()
-            f_plus = f_plus[self.indices].reshape(1, 3*len(self.indices))
-                                   
+            f_plus =  atoms_displaced_plus.get_forces()                                   
 
             # Copy the atomic structure and make displacement in -Q direction 
             try:
@@ -253,32 +248,26 @@ class Vibrations2():
                 atoms_displaced_min.write(f'disp{i}_min.xyz')
             e_min = atoms_displaced_min.get_potential_energy()
             f_min = atoms_displaced_min.get_forces()            
-            f_min = f_min[self.indices].reshape(1, 3*len(self.indices))
             
-            # Transform forces from (x, y, z) to qi
-            f_plus_q = np.dot(f_plus, Transform.T)
-            f_min_q = np.dot(f_min, Transform.T)
+            #Take dot product between forces and the q
+            u = modes[i]
+            f_plus_q = f_plus[self.indices].ravel() @ u[self.indices].ravel().T
+            f_min_q = f_min[self.indices].ravel() @ u[self.indices].ravel().T 
 
                 
             if self.FD_method == 'energy':
                 # Probably better in avoiding eggbox effect?
-                H[i,i] = 0.5*(e_min + e_plus - 2 * e_eq)/(factor)**2
+                omega2[i] = (e_min + e_plus - 2 * e_eq)/(factor)**2
             elif self.FD_method == 'forces':
-                H[i] =  0.5*(f_min_q - f_plus_q)/(2*factor) 
-            #H supposed to be symmetric. Factor 0.5 is used to reduce the nummerical noise. 
-            #The 1/2H is then added to its transpose 1/2H.T.    
+                omega2[i] =  (f_min_q - f_plus_q)/(2*factor)    
 
-            i -= 1
-        
-        H += H.T #This H is in Q space thus no need to be wighted with mass. 
-
-        omega2, vectors = np.linalg.eigh(H)    
+            i -= 1                
 
         unit_conversion = units._hbar * units.m / np.sqrt(units._e * units._amu)
         energies = unit_conversion * omega2.astype(complex)**0.5
 
         self.energies = energies
-        self.modes = modes #The modes is the same as in the 1st iteration.
+        self.modes = modes
         os.chdir('..')
         print('\nFinished. Print the summary with vib.summary()\n')
 
