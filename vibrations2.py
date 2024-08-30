@@ -1,6 +1,6 @@
 """ 
 ###Vibrations2###
-This class performing the vibrational calculation twice:
+This class performing the vibrational calculation two times:
 1st: Calculating Hessian (H) in cartesian coordinate (x, y, z) using ASE vibrations module
 2nd: Refining the H in the normal coordinate (qi)
 In both case H is approximated using finite difference methods. 
@@ -48,7 +48,7 @@ Input parameter
     
         if isolated=True please also specify following input
             mol_shape: str
-                default='nonlinear'
+                default='None'
                 The shape of molecule. It is either 'linear' or 'nonlinear'
 
     name2: str
@@ -59,15 +59,18 @@ Input parameter
         default="forces"
         "forces": Use finite difference of forces to calculate H
                     H[i] =  (f_min_q - f_plus_q)/(2*disp) 
-        "energy": Use finite difference of energy to calculate H
+        "energy": Use finite difference of energy to calculate H. This is just experimental. Not recommended to use. 
                     H[i,i] = (e_min + e_plus - 2 * e_eq)/(disp)**2
-        Here disp is the displacement magnitude. 
 
     fmax: float
         default=2e-3 Ry/Bohr
         Target maximum force acting on the displaced atoms. 
         This is used to determine the displacement magnitude.
         see e.q. https://doi.org/10.1103/PhysRevB.110.075409
+    
+    vib1_summary: bool
+        default=false
+        Print the summary of the first normal mode calculation.
 
 Example
     >>> from ase.optimize import BFGS as relaxer
@@ -84,20 +87,6 @@ Example
     BFGS:    3 16:38:17        0.262777        0.0015
     >>> vib = Vibrations2(atoms, isolated=True, mol_shape='linear')
     >>> vib.run()
-    Summary of the vibrational analysis using 
-    displacement in cartesian coordinate (x, y, z).
-
-    ---------------------
-    #    meV     cm^-1
-    ---------------------
-    0    0.0       0.0
-    1    0.0       0.0
-    2    0.0       0.0
-    3    1.4      11.5
-    4    1.4      11.5
-    5  152.7    1231.3
-    ---------------------
-    Zero-point energy: 0.078 eV
 
     Calcualting the vibrational analysis using 
     displacement in normal coordinate (Qi) . . . 
@@ -139,10 +128,11 @@ class Vibrations2():
                  delta=0.01, 
                  nfree=2, 
                  isolated=False, 
-                 mol_shape='nonlinear', 
+                 mol_shape=None, 
                  name2='vib2', 
                  FD_method='forces', 
                  fmax=2e-3*units.Ry/units.Bohr,
+                 vib1_summary = False,
                  ):
 
         self.atoms = atoms
@@ -155,10 +145,19 @@ class Vibrations2():
         self.name2 = name2
         self.delta = delta
         self.nfree = nfree
+        
         self.isolated = isolated
         self.mol_shape = mol_shape
+        if len(self.atoms) == len(self.indices):
+            if self.isolated:
+                if self.mol_shape is None:
+                    raise ValueError("Please set the molecule shape for isolated molecules.")
+            else:
+                raise ValueError("Isolated system detected. Please set isolated=True and specify the molecule shape.")
+            
         self.FD_method = FD_method
         self.fmax = fmax
+        self.vib1_summary = vib1_summary
     
     def do_vib1(self):
         """
@@ -173,15 +172,18 @@ class Vibrations2():
                          nfree = self.nfree,
                          )
         vib.run()
-        print('Summary of the vibrational analysis using \n displacement in cartesian coordinate (x, y, z).\n')
-        vib.summary()
+        
+        if self.vib1_summary:
+            print('Summary of the vibrational analysis using \n displacement in cartesian coordinate (x, y, z).\n')
+            vib.summary()
+        
         print('\nCalcualting the vibrational analysis using \n displacement in normal coordinate (Qi) . . . \n')
         return vib
         
-    def run(self):
+    def run(self):        
         """
         Main part of the code.
-        """
+        """        
 
         # Getting the frequencies and normal modes
         vib1 = self.do_vib1()
@@ -193,7 +195,6 @@ class Vibrations2():
         mu = self.calculate_reduced_mass(modes)
 
         # Determining the number of modes
-
         if self.isolated:
             """
             For isolated molecules, the displacement will not be made in the
@@ -216,7 +217,7 @@ class Vibrations2():
         
         # Calculate the forces of the displaced atoms along normal coordinate qi, then calculate the H(qi,qj)
 
-        H = np.zeros((len(modes), len(modes))) 
+        H = np.zeros((len(modes), len(modes)))
         i = len(modes) - 1
         e_eq = self.atoms.get_potential_energy()
         for _ in range(Nmode):
@@ -260,38 +261,33 @@ class Vibrations2():
 
                 
             if self.FD_method == 'energy':
-                # Probably better in avoiding eggbox effect?                
+                # Probably better in avoiding eggbox effect?
                 H[i,i] = 0.5*(e_min + e_plus - 2 * e_eq)/(factor)**2
             elif self.FD_method == 'forces':
                 H[i] =  0.5*(f_min_q - f_plus_q)/(2*factor) 
             #H supposed to be symmetric. Factor 0.5 is used to reduce the nummerical noise. 
-            #The 1/2H is then added to its transpose 1/2H.T.
+            #The 1/2H is then added to its transpose 1/2H.T.    
 
             i -= 1
         
         H += H.T #This H is in Q space thus no need to be wighted with mass. 
 
-        omega2, vectors = np.linalg.eigh(H)
+        omega2, vectors = np.linalg.eigh(H)    
 
         unit_conversion = units._hbar * units.m / np.sqrt(units._e * units._amu)
         energies = unit_conversion * omega2.astype(complex)**0.5
 
-        masses = self.atoms.get_masses()
-        n_atoms = len(self.atoms)
-        new_modes = vectors.T.reshape(n_atoms * 3, n_atoms, 3)
-        new_modes = new_modes * masses[np.newaxis, :, np.newaxis]**-0.5
-    
         self.energies = energies
-        self.new_modes = modes
+        self.modes = modes #The modes is the same as in the 1st iteration.
         os.chdir('..')
-        print('\nFinished. Print the summarry with vib.summary()\n')
+        print('\nFinished. Print the summary with vib.summary()\n')
 
-    def get_amplitude(self, e_vib, mu):       
+    def get_amplitude(self, e_vib, mu):  
         """
         Calculate the amplitude of the displacement along the Q. 
         The amplitude expect to causses the atomic structure to 
         feel maximum forces of fmax.
-        """
+        """                   
         e_vib = e_vib.real + e_vib.imag  
         k = (e_vib*2*np.pi)**2 * mu
         amp = self.fmax / k**0.5
@@ -315,7 +311,7 @@ class Vibrations2():
         else:
             n %= len(self.energies)
 
-        with ase.io.Trajectory('%s.%d.traj' % (self.name2, n), 'w') as traj:
+        with ase.io.Trajectory('%s.%d.traj' % (self.name, n), 'w') as traj:
             for image in (self.iter_animated_mode(n,
                                               temperature=kT, frames=nimages)):
                 traj.write(image)
@@ -335,7 +331,7 @@ class Vibrations2():
 
         """
 
-        mode = (self.new_modes[mode_index]
+        mode = (self.modes[mode_index]
                 * np.sqrt(temperature / abs(self.energies[mode_index])))
 
         for phase in np.linspace(0, 2 * np.pi, frames, endpoint=False):
