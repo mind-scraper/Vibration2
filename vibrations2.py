@@ -276,10 +276,13 @@ class Vibrations2():
         Calculate the amplitude of the displacement along the Q. 
         The amplitude expect to causses the atomic structure to 
         feel maximum forces of fmax.
+        However, it should not be bigger than 1. 
         """                   
         e_vib = e_vib.real + e_vib.imag  
         k = (e_vib*2*np.pi)**2 * mu
         amp = self.fmax / k**0.5
+        if amp > 1:
+            amp = 1        
         return amp
         
     def summary(self):
