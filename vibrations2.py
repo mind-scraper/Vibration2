@@ -1,9 +1,11 @@
 """ 
 ###Vibrations2###
-This class performing the vibrational calculation two times:
+This class performing the vibrational calculation with the following steps.
 1st: Calculating Hessian (H) in cartesian coordinate (x, y, z) using ASE vibrations module
 2nd: Refining the eigen value (omega2) in the normal coordinate (qi)
-In both case the derivative of forces is approximated using finite difference methods. 
+3rd: Repeat 2nd until error < error_thr
+
+The derivative of forces is approximated using finite difference methods. 
 
 Many part of the code are copied from ASE. 
 https://databases.fysik.dtu.dk/ase/ase/vibrations/vibrations.html
@@ -67,10 +69,10 @@ Input parameter
         Target maximum force acting on the displaced atoms. 
         This is used to determine the displacement magnitude.
         see e.q. https://doi.org/10.1103/PhysRevB.110.075409
-    
-    vib1_summary: bool
-        default=false
-        Print the summary of the first normal mode calculation.
+
+    error_thr: float
+        default=10 cm^-1
+        Threshold to stop the iteration. It is definied as the frequency difference between two consecutive iteration. 
 
 Example
     >>> from ase.optimize import BFGS as relaxer
@@ -87,10 +89,29 @@ Example
     BFGS:    3 16:38:17        0.262777        0.0015
     >>> vib = Vibrations2(atoms, isolated=True, mol_shape='linear')
     >>> vib.run()
+    Summary of the vibrational analysis by 
+    displacement in cartesian coordinate (x, y, z).
 
-    Calcualting the vibrational analysis using 
+    ---------------------
+      #    meV     cm^-1
+    ---------------------
+      0    0.0       0.0
+      1    0.0       0.0
+      2    0.0       0.0
+      3    1.4      11.5
+      4    1.4      11.5
+      5  152.7    1231.3
+    ---------------------
+    Zero-point energy: 0.078 eV
+
+    Calcualting the vibrational analysis by 
     displacement in normal coordinate (Qi) . . . 
-
+    
+    ### Refining mode 5 ###
+    Initial nu= 1231.26+0.00j cm^-1
+    New nu = 1231.30+0.00j cm^-1
+    Error = 0.04 cm^-1
+    
     Finished. Print the summarry with vib.summary()
     >>> vib.summary()
     ---------------------
@@ -101,7 +122,7 @@ Example
     2    0.0       0.0
     3    0.0       0.0
     4    0.0       0.0
-    5  152.7    1231.2
+    5  152.7    1231.3
     ---------------------
     Zero-point energy: 0.076 eV
     >>> vib.write_mode(-1)  # write last mode to trajectory file
@@ -119,7 +140,7 @@ from ase import Atoms
 import ase
 import os
 import sys
-from itertools import combinations
+from copy import deepcopy, copy
 
 class Vibrations2():
     def __init__(self, atoms, 
@@ -131,8 +152,8 @@ class Vibrations2():
                  mol_shape=None, 
                  name2='vib2', 
                  FD_method='forces', 
-                 fmax=2e-3*units.Ry/units.Bohr,
-                 vib1_summary = False,
+                 fmax=3e-3*units.Ry/units.Bohr,
+                 error_thr = 1, #Error in cm^-1
                  ):
 
         self.atoms = atoms
@@ -148,16 +169,17 @@ class Vibrations2():
         
         self.isolated = isolated
         self.mol_shape = mol_shape
+
         if len(self.atoms) == len(self.indices):
             if self.isolated:
                 if self.mol_shape is None:
                     raise ValueError("Please set the molecule shape for isolated molecules.")
             else:
                 raise ValueError("Isolated system detected. Please set isolated=True and specify the molecule shape.")
-            
+
         self.FD_method = FD_method
         self.fmax = fmax
-        self.vib1_summary = vib1_summary
+        self.error_thr = error_thr
     
     def do_vib1(self):
         """
@@ -173,9 +195,8 @@ class Vibrations2():
                          )
         vib.run()
         
-        if self.vib1_summary:
-            print('Summary of the vibrational analysis by \n displacement in cartesian coordinate (x, y, z).\n')
-            vib.summary()
+        print('Summary of the vibrational analysis by \n displacement in cartesian coordinate (x, y, z).\n')
+        vib.summary()
         
         print('\nCalcualting the vibrational analysis by \n displacement in normal coordinate (Qi) . . . \n')
         return vib
@@ -194,7 +215,7 @@ class Vibrations2():
         # Calculate reduced mass for each modes
         mu = self.calculate_reduced_mass(modes)
 
-        # Determining the number of modes
+        # Determine the number of modes
         if self.isolated:
             """
             For isolated molecules, the displacement will not be made in the
@@ -217,72 +238,110 @@ class Vibrations2():
         
         # Calculate the forces of the displaced atoms along normal coordinate qi, then calculate omega2
 
-        omega2 = np.zeros(len(modes))
         i = len(modes) - 1
         e_eq = self.atoms.get_potential_energy()
 
+        energies_new = np.zeros(len(modes) , dtype=complex)
         for _ in range(Nmode):
-            factor = self.get_amplitude(energies[i], mu[i])
-            displacement = factor*modes[i]       
-
-            # Copy the atomic structure and make displacement in +Q direction 
-            try:
-                atoms_displaced_plus = read(f'disp{i}_plus.xyz')
-            except:
-                atoms_displaced_plus = self.atoms.copy()
-                atoms_displaced_plus.positions += displacement
-                atoms_displaced_plus.calc = self.calc
-                atoms_displaced_plus.get_potential_energy()
-                atoms_displaced_plus.write(f'disp{i}_plus.xyz')            
-            e_plus = atoms_displaced_plus.get_potential_energy()
-            f_plus =  atoms_displaced_plus.get_forces()                                   
-
-            # Copy the atomic structure and make displacement in -Q direction 
-            try:
-                atoms_displaced_min = read(f'disp{i}_min.xyz')
-            except:
-                atoms_displaced_min = self.atoms.copy()
-                atoms_displaced_min.positions -= displacement
-                atoms_displaced_min.calc = self.calc
-                atoms_displaced_min.get_potential_energy()
-                atoms_displaced_min.write(f'disp{i}_min.xyz')
-            e_min = atoms_displaced_min.get_potential_energy()
-            f_min = atoms_displaced_min.get_forces()            
+            print(f'\n### Refining mode {i} ###')
+            freq = energies[i]/units.invcm
+            print(f'Initial nu= {freq:.2f} cm^-1')
+            error = self.get_error(energies[i], energies_new[i])
             
-            #Take dot product between forces and the q
-            u = modes[i]
-            f_plus_q = f_plus[self.indices].ravel() @ u[self.indices].ravel().T
-            f_min_q = f_min[self.indices].ravel() @ u[self.indices].ravel().T 
-
+            factor = None
+            while error > self.error_thr:        
                 
-            if self.FD_method == 'energy':
-                # Probably better in avoiding eggbox effect?
-                omega2[i] = (e_min + e_plus - 2 * e_eq)/(factor)**2
-            elif self.FD_method == 'forces':
-                omega2[i] =  (f_min_q - f_plus_q)/(2*factor)    
+                if factor is not None:
+                    factor = (factor + self.get_amplitude(energies[i], mu[i]))/2
+                    if factor>1:
+                        factor=1
+                else:
+                    factor = self.get_amplitude(energies[i], mu[i])
 
-            i -= 1                
+                displacement = factor*modes[i]
 
-        unit_conversion = units._hbar * units.m / np.sqrt(units._e * units._amu)
-        energies = unit_conversion * omega2.astype(complex)**0.5
+                # Copy the atomic structure and make displacement in +Q direction 
+                try:
+                    atoms_displaced_plus = read(f'disp{i}_plus.xyz')
+                    os.remove(f'disp{i}_plus.xyz')
+                    restart = True
+                except:                        
+                    atoms_displaced_plus = self.atoms.copy()
+                    atoms_displaced_plus.positions += displacement
+                    atoms_displaced_plus.calc = copy(self.calc)
+                    restart = False
+                e_plus = atoms_displaced_plus.get_potential_energy()
+                f_plus = atoms_displaced_plus.get_forces()
 
-        self.energies = energies
+                # Copy the atomic structure and make displacement in -Q direction 
+                try:
+                    atoms_displaced_min = read(f'disp{i}_min.xyz')
+                    os.remove(f'disp{i}_min.xyz')
+                except:    
+                    atoms_displaced_min = self.atoms.copy()
+                    atoms_displaced_min.positions -= displacement
+                    atoms_displaced_min.calc = copy(self.calc)
+                e_min = atoms_displaced_min.get_potential_energy()
+                f_min = atoms_displaced_min.get_forces()
+
+                #Take dot product between forces and the q
+                u = modes[i]
+                f_plus_q = f_plus[self.indices].ravel() @ u[self.indices].ravel().T
+                f_min_q = f_min[self.indices].ravel() @ u[self.indices].ravel().T 
+
+                #Calculate the displacement magnitude. 
+                # It is the same as prev. variable "factor" for a fresh start calculation. 
+                # But it is different for restarted calculation. 
+                # That's why I calculate it manually from displacement of the atoms from equilibirum position. 
+                disp_pos = atoms_displaced_plus.get_positions()
+                eq_pos = self.atoms.get_positions()
+                delta = disp_pos - eq_pos
+                delta = (delta[self.indices].ravel() @ delta[self.indices].ravel().T)**0.5
+                u  = (u[self.indices].ravel() @ u[self.indices].ravel().T)**0.5
+                delta = delta / u
+
+                if self.FD_method == 'energy':
+                    # Probably better in avoiding eggbox effect?
+                    omega2 = (e_min + e_plus - 2 * e_eq)/(delta)**2
+                elif self.FD_method == 'forces':
+                    omega2 =  (f_min_q - f_plus_q)/(2*delta)    
+
+                unit_conversion = units._hbar * units.m / np.sqrt(units._e * units._amu)
+                energies_new[i] = unit_conversion * omega2.astype(complex)**0.5               
+                 
+                print(f'New nu = {energies_new[i]/units.invcm:.2f} cm^-1')            
+                
+                if restart:
+                    error = 0
+                    energies[i] = energies_new[i]
+                else:                    
+                    error = self.get_error(energies[i], energies_new[i])
+                    print(f'Error = {error:.2f} cm^-1')
+                    energies[i] = energies_new[i]                            
+
+            #Write converged coordinate
+            atoms_displaced_plus.write(f'disp{i}_plus.xyz')   
+            atoms_displaced_min.write(f'disp{i}_min.xyz')
+            i -= 1                            
+
+        self.energies = energies_new
         self.modes = modes
         os.chdir('..')
         print('\nFinished. Print the summary with vib.summary()\n')
 
+    def get_error(self, e_new, e_old):
+        error = (abs(e_new.real - e_old.real) + abs(e_new.imag - e_old.imag)) / units.invcm
+        return error
+
     def get_amplitude(self, e_vib, mu):  
         """
         Calculate the amplitude of the displacement along the Q. 
-        The amplitude expect to causses the atomic structure to 
+        The amplitude expected to causses the atomic structure to 
         feel maximum forces of fmax.
-        However, it should not be bigger than 1. 
-        """                   
+        """                  
         e_vib = e_vib.real + e_vib.imag  
         k = (e_vib*2*np.pi)**2 * mu
-        amp = self.fmax / k**0.5
-        if amp > 1:
-            amp = 1        
+        amp = self.fmax / k**0.5     
         return amp
         
     def summary(self):
