@@ -153,7 +153,7 @@ class Vibrations2():
                  name2='vib2', 
                  FD_method='forces', 
                  fmax=3e-3*units.Ry/units.Bohr,
-                 error_thr = 1, #Error in cm^-1
+                 error_thr = 10, #Error in cm^-1
                  ):
 
         self.atoms = atoms
