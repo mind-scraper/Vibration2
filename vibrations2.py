@@ -107,18 +107,18 @@ Example
 
     ###Step : 2###
     Displacement in normal coordiate.
-    ZPE difference with prev. calc. = 0.42 meV
+    ZPE difference with prev. calc. = 2.76 meV
     ---------------------
     #    meV     cm^-1
     ---------------------
     0    0.0       0.0
     1    0.0       0.0
     2    0.0       0.0
-    3    1.0       8.2
-    4    1.0       8.2
+    3    4.2      33.8
+    4    4.2      33.8
     5  152.6    1231.2
     ---------------------
-    Zero-point energy: 0.077 eV
+    Zero-point energy: 0.081 eV
     >>> vib.write_mode(-1)  # write last mode to trajectory file
     >>> vib.write_disp()  # write the displacement in xyz file. This can be used to restart a calculation with vib.run_from_disp().
 
