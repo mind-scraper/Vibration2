@@ -529,3 +529,5 @@ class Vibrations2():
 
         modes = vibrations.get_modes(all_atoms=True)
         self.modes = modes
+
+        self.summary()
