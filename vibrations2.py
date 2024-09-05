@@ -53,7 +53,7 @@ Input parameter
         default=2e-3 Ry/Bohr
         Target maximum force acting on the displaced atoms. 
         This is used to determine the displacement magnitude, see e.q. https://doi.org/10.1103/PhysRevB.110.075409.
-        However, it will limit by delta (see above variable) to avoid too big displacement
+        However, it will limit by 10*delta (see above variable) to avoid too big displacement
         caused by soft modes. 
 
     error_thr: float
@@ -62,6 +62,7 @@ Input parameter
         It is definied as the absolute difference of ZPE between two consecutive calculation.
         I set the default to a big value so that the calculation will only be performed two times: 1st in cartesian, 2nd in normal coordinate.
         From my trial, 3rd calculation in the normal coordinate will give almost the same value as the 2nd one.
+        If you want to do more iteration, reduce the threshold. 
 
     isolated: bool
         default=False
@@ -324,8 +325,8 @@ class Vibrations2():
         e_vib = e_vib.real + e_vib.imag
         k = (e_vib*2*np.pi)**2 * mu
         amp = self.fmax / k**0.5
-        if amp > self.delta:
-            amp = self.delta
+        if amp > 10*self.delta:
+            amp = 10*self.delta
         return amp
     
     def get_error(self, zpe_old, zpe_new):        
