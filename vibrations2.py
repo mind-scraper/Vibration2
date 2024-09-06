@@ -43,7 +43,7 @@ Input parameter
         
     #Following inputs are NOT exist in ASE's vibration
     method: str
-        default="plus"
+        default="plus_minus"
         "plus": displace along +q
         "plus_minus": displace along +q and -q
 
@@ -153,7 +153,7 @@ class Vibrations2():
                  FD_method='forces', 
                  fmax=3e-3*units.Ry/units.Bohr,
                  error_thr = 100, #Error in meV
-                 method = 'plus',                 
+                 method = 'plus_minus',                 
                  ):
 
         self.atoms = atoms
