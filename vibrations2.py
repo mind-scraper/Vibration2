@@ -53,8 +53,9 @@ Input parameter
         "energy": Use finite difference of energy to calculate derivative. This is just experimental. Not recommended to use.
 
     fmax: float
-        default=2e-3 Ry/Bohr
+        default=3e-3 Ry/Bohr
         Target maximum force acting on the displaced atoms. 
+        I set this to 3 times relaxation threshold in Quantum ESPRESSO.
         This is used to determine the displacement magnitude, see e.q. https://doi.org/10.1103/PhysRevB.110.075409.
         However, it will limit by 10*delta (see above variable) to avoid too big displacement
         caused by soft modes. 
@@ -140,6 +141,7 @@ import os
 import sys
 from itertools import combinations
 from copy import copy
+from ase.calculators.singlepoint import SinglePointCalculator
 
 class Vibrations2():
     def __init__(self, atoms, 
@@ -149,7 +151,7 @@ class Vibrations2():
                  isolated=False, 
                  mol_shape=None, 
                  FD_method='forces', 
-                 fmax=2e-3*units.Ry/units.Bohr,
+                 fmax=3e-3*units.Ry/units.Bohr,
                  error_thr = 100, #Error in meV
                  method = 'plus',                 
                  ):
@@ -219,11 +221,7 @@ class Vibrations2():
         # Calculate reduced mass for each modes
         mu = self.calculate_reduced_mass(modes)   
 
-        error = self.error_thr + 1
-
-        # Get energy and forces of equilibrium structure
-        f_eq = self.atoms.get_forces()
-        e_eq = self.atoms.get_potential_energy()        
+        error = self.error_thr + 1                
 
         while error > self.error_thr:
             
@@ -257,7 +255,6 @@ class Vibrations2():
                     e_plus = atoms_displaced_plus.get_potential_energy()
                     atoms_displaced_plus.write(f'vib{step}/disp{i}_plus.xyz')
                 f_plus = atoms_displaced_plus.get_forces()
-                f_plus = f_plus - f_eq
 
                 if self.method == 'plus_minus':
                     # Copy the atomic structure and make displacement in -Q direction 
@@ -271,7 +268,6 @@ class Vibrations2():
                         e_min = atoms_displaced_min.get_potential_energy()
                         atoms_displaced_min.write(f'vib{step}/disp{i}_min.xyz')
                     f_min = atoms_displaced_min.get_forces()
-                    f_min = f_min - f_eq
 
                 #Take dot product between forces and the q
                 u = modes[i]
@@ -293,12 +289,14 @@ class Vibrations2():
 
                 if self.method == 'plus_minus':
                     if self.FD_method == 'energy':
+                        e_eq = self.atoms.get_potential_energy()
                         # Probably better in avoiding eggbox effect?                    
                         H_q[i,i] = (e_min + e_plus - 2 * e_eq)/(delta)**2
                     elif self.FD_method == 'forces':
                         H_q[i,i] =  (f_min_q - f_plus_q)/(2*delta) #- f_plus_q/delta #
                 else:
                     if self.FD_method == 'energy':
+                        e_eq = self.atoms.get_potential_energy()
                         # Probably better in avoiding eggbox effect?                    
                         H_q[i,i] = 2*(e_plus - e_eq)/(delta)**2
                     elif self.FD_method == 'forces':
@@ -467,10 +465,6 @@ class Vibrations2():
             pass
         
         # Calculate the forces of the displaced atoms along normal coordinate qi
-
-        # Get energy and forces of equilibrium structure
-        f_eq = self.atoms.get_forces()
-        e_eq = self.atoms.get_potential_energy()   
             
         H_q = np.zeros((3*len(self.indices), 3*len(self.indices)))
         i = 3*len(self.indices) - 1
@@ -527,13 +521,15 @@ class Vibrations2():
 
             if self.method == 'plus_minus':
                 if self.FD_method == 'energy':
-                    # Probably better in avoiding eggbox effect?                    
+                    # Probably better in avoiding eggbox effect?          
+                    e_eq = self.atoms.get_potential_energy()          
                     H_q[i,i] = (e_min + e_plus - 2 * e_eq)/(delta)**2
                 elif self.FD_method == 'forces':
                     H_q[i,i] =  (f_min_q - f_plus_q)/(2*delta) #- f_plus_q/delta #
             else:
                 if self.FD_method == 'energy':
                     # Probably better in avoiding eggbox effect?                    
+                    e_eq = self.atoms.get_potential_energy()
                     H_q[i,i] = 2*(e_plus - e_eq)/(delta)**2
                 elif self.FD_method == 'forces':
                     H_q[i,i] =  - f_plus_q/delta
