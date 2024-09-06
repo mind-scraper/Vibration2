@@ -218,9 +218,6 @@ class Vibrations2():
         modes = [vib1.get_mode(i) for i in range(len(energies))]
         modes = np.array(modes)
 
-        # Calculate reduced mass for each modes
-        mu = self.calculate_reduced_mass(modes)   
-
         error = self.error_thr + 1                
 
         while error > self.error_thr:
@@ -241,7 +238,7 @@ class Vibrations2():
             i = 3*len(self.indices) - 1
             self.all_delta = np.zeros(3*len(self.indices))
             for _ in range(self.Nmode):
-                factor = self.get_amplitude(energies[i], mu[i])
+                factor = self.get_amplitude(energies[i])
                 displacement = factor*modes[i]                   
 
                 # Copy the atomic structure and make displacement in +Q direction 
@@ -335,15 +332,16 @@ class Vibrations2():
             self.summary()
             zpe = zpe_new
 
-    def get_amplitude(self, e_vib, mu):  
+    def get_amplitude(self, e_vib):  
         """
         Calculate the amplitude of the displacement along the Q. 
         The amplitude expect to causses the atomic structure to 
         feel maximum forces of fmax.
         """                   
         e_vib = e_vib.real + e_vib.imag
-        k = (e_vib*2*np.pi)**2 * mu
-        amp = self.fmax / k**0.5
+        s = units._hbar * 1e10 / np.sqrt(units._e * units._amu)
+        k = e_vib/s        
+        amp = self.fmax / k    
         if amp > 10*self.delta:
             amp = 10*self.delta
         return amp
@@ -397,28 +395,6 @@ class Vibrations2():
             atoms.positions += np.sin(phase) * mode
 
             yield atoms
-
-    def calculate_reduced_mass(self, displacement_vectors):
-        masses = self.atoms.get_masses()
-        reduced_masses = []
-
-        for displacement in displacement_vectors:
-            displacement = np.array(displacement)
-            norm = np.linalg.norm(displacement)
-            if norm == 0:
-                reduced_masses.append(0)
-                continue
-
-            displacement_unit = displacement / norm
-            inv_mass_sum = 0
-
-            for i, mass in enumerate(masses):
-                inv_mass_sum += np.dot(displacement_unit.flatten(), displacement_unit.flatten()) / mass
-
-            reduced_mass = 1 / inv_mass_sum
-            reduced_masses.append(reduced_mass)
-
-        return reduced_masses
     
     def get_zpe(self, energies):
         return 0.5 * np.asarray(energies).real.sum()
