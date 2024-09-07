@@ -172,6 +172,13 @@ class Vibrations2():
         self.FD_method = FD_method
         self.fmax = fmax
         self.method = method
+                     
+        if len(self.atoms) == len(self.indices):
+            if self.isolated:
+                if self.mol_shape is None:
+                    raise ValueError("Please set the molecule shape for isolated molecules.")
+            else:
+                raise ValueError("Isolated system detected. Please set isolated=True and specify the molecule shape.")
 
         # Determine the number of modes for the refinement
         if self.isolated:
