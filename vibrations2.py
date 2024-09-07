@@ -1,6 +1,6 @@
 """ 
 ###Vibrations2###
-This class performing the vibrational calculation with the following steps.
+This class performs the vibrational calculation with the following steps.
 1st: Calculating Hessian (H) in cartesian coordinate (x, y, z) using ASE vibrations module
 2nd: Refining the H in the normal coordinate (qi)
 3rd: Repeat 2nd until the ZPE difference between two consecutive calculation is below error_thr. 
