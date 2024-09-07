@@ -92,7 +92,7 @@ Example
     BFGS:    1 16:38:17        0.264361        0.3475
     BFGS:    2 16:38:17        0.262860        0.0805
     BFGS:    3 16:38:17        0.262777        0.0015
-    >>> vib = Vibrations2(atoms)
+    >>> vib = Vibrations2(atoms, isolated=True, shape='linear')
     >>> vib.run()
 
     ###Step : 1###
@@ -118,8 +118,8 @@ Example
     0    0.0       0.0
     1    0.0       0.0
     2    0.0       0.0
-    3    4.2      33.8
-    4    4.2      33.8
+    3    0.0       0.0
+    4    0.0       0.0
     5  152.6    1231.2
     ---------------------
     Zero-point energy: 0.081 eV
