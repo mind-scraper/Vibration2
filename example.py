@@ -10,6 +10,6 @@ opt = relaxer(atoms)
 opt.run(fmax=0.01)
 
 # Vibrational analysis
-vib = Vibrations2(atoms)
+vib = Vibrations2(atoms, isolated=True, shape='linear')
 vib.run()
 vib.write_mode(-1)
