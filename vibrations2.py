@@ -120,7 +120,7 @@ Example
     2    0.0       0.0
     3    0.0       0.0
     4    0.0       0.0
-    5  152.6    1255.3
+    5  152.6    1231.3
     ---------------------
     Zero-point energy: 0.081 eV
     >>> vib.write_mode(-1)  # write last mode to trajectory file
