@@ -347,7 +347,7 @@ class Vibrations2():
         """                   
         e_vib = e_vib.real + e_vib.imag
         s = units._hbar * 1e10 / np.sqrt(units._e * units._amu)
-        k = e_vib/s        
+        k = (e_vib/s)**2
         amp = self.fmax / k    
         if amp > 10*self.delta:
             amp = 10*self.delta
