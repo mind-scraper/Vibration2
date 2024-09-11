@@ -52,15 +52,19 @@ Input parameter
         "forces": Use finite difference of forces to calculate derivative.
         "energy": Use finite difference of energy to calculate derivative. This is just experimental. Not recommended to use.
 
-    fmax: float
-        default=3e-3 Ry/Bohr
+    fmax: float (in eV/Angstrom)
+        default=3e-3 units.Ry/units.Bohr
         Target maximum force acting on the displaced atoms. 
         I set this to 3 times relaxation threshold in Quantum ESPRESSO.
         This is used to determine the displacement magnitude, see e.q. https://doi.org/10.1103/PhysRevB.110.075409.
-        However, it will limit by 10*delta (see above variable) to avoid too big displacement
-        caused by soft modes. 
+        However, it will limit by max_factor (see following variable) to avoid too big displacement
+        caused by soft modes.
 
-    error_thr: float
+    max_factor: float (in Angstrom)
+        default=0.5*units.Bohr
+        Maximum allowed factor for displacement.
+
+    error_thr: float (in meV)
         default=100 meV
         Threshold to stop the calculation. 
         It is definied as the absolute difference of ZPE between two consecutive calculation.
@@ -153,7 +157,8 @@ class Vibrations2():
                  FD_method='forces', 
                  fmax=3e-3*units.Ry/units.Bohr,
                  error_thr = 100, #Error in meV
-                 method = 'plus_minus',                 
+                 method = 'plus_minus',
+                 max_factor = 0.5*units.Bohr,
                  ):
 
         self.atoms = atoms
@@ -172,6 +177,7 @@ class Vibrations2():
         self.FD_method = FD_method
         self.fmax = fmax
         self.method = method
+        self.max_factor = max_factor
                      
         if len(self.atoms) == len(self.indices):
             if self.isolated:
@@ -349,8 +355,8 @@ class Vibrations2():
         s = units._hbar * 1e10 / np.sqrt(units._e * units._amu)
         k = (e_vib/s)**2
         amp = self.fmax / k    
-        if amp > 10*self.delta:
-            amp = 10*self.delta
+        if amp > self.max_factor:
+            amp = self.max_factor
         return amp
     
     def get_error(self, zpe_old, zpe_new):        
