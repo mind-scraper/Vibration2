@@ -81,7 +81,12 @@ Input parameter
         if isolated=True please also specify following input
             mol_shape: str
                 default='None'
-                The shape of molecule. It is either 'linear' or 'nonlinear'    
+                The shape of molecule. It is either 'linear' or 'nonlinear'
+        
+    from_disp: bool
+        default=False
+        Run 1st calculation from presuplied displacement vector prduced by vib.write_disp(). 
+        Currently can only be used with isolated=False
 
 Example
     >>> from ase.optimize import BFGS as relaxer
@@ -159,6 +164,7 @@ class Vibrations2():
                  error_thr = 100, #Error in meV
                  method = 'plus_minus',
                  max_factor = 0.5*units.Bohr,
+                 from_disp=False,
                  ):
 
         self.atoms = atoms
@@ -178,6 +184,7 @@ class Vibrations2():
         self.fmax = fmax
         self.method = method
         self.max_factor = max_factor
+        self.from_disp = from_disp
                      
         if len(self.atoms) == len(self.indices):
             if self.isolated:
@@ -223,12 +230,20 @@ class Vibrations2():
         step = 1
         self.step = step 
         print(f'\n###Step : {step}###')
-        print('Displacement in cartesian coordinate.')
-        # Getting the frequencies and normal modes
-        vib1 = self.do_vib1()
-        energies = vib1.get_energies()
-        zpe = self.get_zpe(energies)
-        modes = [vib1.get_mode(i) for i in range(len(energies))]
+
+        if self.from_disp:
+            print('\nDisplacement coordinate presupplied.')
+            self.run_from_disp()
+            energies = self.energies
+            modes = self.modes
+        else:
+            print('Displacement in cartesian coordinate.')
+            # Getting the frequencies and normal modes
+            vib1 = self.do_vib1()
+            energies = vib1.get_energies()
+            modes = [vib1.get_mode(i) for i in range(len(energies))]
+
+        zpe = self.get_zpe(energies)        
         modes = np.array(modes)
 
         error = self.error_thr + 1                
@@ -442,9 +457,7 @@ class Vibrations2():
         """
         One can directly calculate the eigen value if 
         the displacement vectors is present inside the disp directory.
-        """        
-        
-        print('\nDisplacement coordinate presupplied.')
+        """                        
 
         # Make directory for storing the displacement files
         dir = 'vib_from_disp'
