@@ -32,7 +32,6 @@ Input parameter
     delta: float
         default=0.01 Å
         Magnitude of displacements in the 1ts calculation. 
-        Also used as the maximum displacement in the following calculation. 
 
     nfree: int
         default=2
@@ -53,9 +52,8 @@ Input parameter
         "energy": Use finite difference of energy to calculate derivative. This is just experimental. Not recommended to use.
 
     fmax: float (in eV/Angstrom)
-        default=3e-3 units.Ry/units.Bohr
+        default=0.15
         Target maximum force acting on the displaced atoms. 
-        I set this to 3 times relaxation threshold in Quantum ESPRESSO.
         This is used to determine the displacement magnitude, see e.q. https://doi.org/10.1103/PhysRevB.110.075409.
         However, it will limit by max_factor (see following variable) to avoid too big displacement
         caused by soft modes.
