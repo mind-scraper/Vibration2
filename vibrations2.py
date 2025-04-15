@@ -158,7 +158,7 @@ class Vibrations2():
                  isolated=False, 
                  mol_shape=None, 
                  FD_method='forces', 
-                 fmax=3e-3*units.Ry/units.Bohr,
+                 fmax=0.15,
                  error_thr = 100, #Error in meV
                  method = 'plus_minus',
                  max_factor = 0.5*units.Bohr,
