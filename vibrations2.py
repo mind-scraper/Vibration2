@@ -16,6 +16,7 @@ Ph.D. student at Morikawa Group
 Osaka University
 August 2024
 Rev. September 2024
+Rev. June 2025: Add GiF (https://state-doc.readthedocs.io/en/latest/index.html) interface
 ######
 
 Input parameter
@@ -86,7 +87,7 @@ Input parameter
         Run 1st calculation from presuplied displacement vector prduced by vib.write_disp(). 
         Currently can only be used with isolated=False
 
-Example
+Example for Vibrations 2
     >>> from ase.optimize import BFGS as relaxer
     >>> from ase import Atoms
     >>> from ase.calculators.emt import EMT
@@ -133,7 +134,9 @@ Example
     >>> vib.write_mode(-1)  # write last mode to trajectory file
     >>> vib.write_disp()  # write the displacement in xyz file. This can be used to restart a calculation with vib.run_from_disp().
 
-Use with care ^_^
+
+Example for GiF    (isolated=True is not yet implemented)
+    >>> vib.gif(n) #Do vibratioal analysis n times, 1st one obtained from displacement in cartesian, while the next in the normal coordinate. 
 """
 
 import numpy as np
@@ -149,6 +152,8 @@ import sys
 from itertools import combinations
 from copy import copy
 from ase.calculators.singlepoint import SinglePointCalculator
+import json
+import re
 
 class Vibrations2():
     def __init__(self, atoms, 
@@ -166,6 +171,7 @@ class Vibrations2():
                  ):
 
         self.atoms = atoms
+        self.atoms.set_constraint() # Remove constrains
         self.calc = atoms.calc
         if indices == None:
             self.indices = [atom.index for atom in self.atoms]
@@ -183,14 +189,16 @@ class Vibrations2():
         self.method = method
         self.max_factor = max_factor
         self.from_disp = from_disp
-                     
+
+        """
         if len(self.atoms) == len(self.indices):
             if self.isolated:
                 if self.mol_shape is None:
                     raise ValueError("Please set the molecule shape for isolated molecules.")
             else:
                 raise ValueError("Isolated system detected. Please set isolated=True and specify the molecule shape.")
-
+        """
+        
         # Determine the number of modes for the refinement
         if self.isolated:
             """
@@ -295,8 +303,10 @@ class Vibrations2():
                 #Take dot product between forces and the q
                 u = modes[i]
                 f_plus_q = f_plus[self.indices].ravel() @ u[self.indices].ravel().T
+                print(f'Force along +q{i} = {f_plus_q:.3f} eV/Angstrom')
                 if self.method == 'plus_minus':
                     f_min_q = f_min[self.indices].ravel() @ u[self.indices].ravel().T 
+                    print(f'Force along -q{i} = {f_min_q:.3f} eV/Angstrom')
 
                 #Calculate the displacement magnitude. 
                 # It is the same as prev. variable "factor" for a fresh start calculation. 
@@ -505,8 +515,10 @@ class Vibrations2():
             #Take dot product between forces and the q
             u = mode#modes[i]
             f_plus_q = f_plus[self.indices].ravel() @ u[self.indices].ravel().T
+            print(f'Force along +q{i} = {f_plus_q:.2f} eV/Angstrom')
             if self.method == 'plus_minus':
                 f_min_q = f_min[self.indices].ravel() @ u[self.indices].ravel().T 
+                print(f'Force along -q{i} = {f_min_q:.2f} eV/Angstrom')
 
             #Calculate the displacement magnitude. 
             # It is the same as prev. variable "factor" for a fresh start calculation. 
@@ -562,3 +574,232 @@ class Vibrations2():
         self.modes = modes
 
         self.summary()
+
+    def get_forces_of_displacement(self):
+        try:
+            os.mkdir("vib1")
+            eq_position =  self.atoms.get_positions()
+            #print(eq_position)
+            for i in self.indices:
+                for j in range(3):
+                                                            
+                    #Plus position                
+                    disp_positions = copy(eq_position)
+                    disp_positions[i,j] += self.delta
+                    disp_structure = self.atoms.copy()
+                    disp_structure.set_positions(disp_positions)
+                    disp_structure.calc = self.calc
+                    disp_structure.get_potential_energy()
+                    if j==0:
+                        disp_structure.write(f"vib1/{i}x+.xyz")
+                    elif j==1:
+                        disp_structure.write(f"vib1/{i}y+.xyz")
+                    elif j==2:
+                        disp_structure.write(f"vib1/{i}z+.xyz")
+
+                    #Minus position               
+                    disp_positions = copy(eq_position)
+                    disp_positions[i,j] += -1*self.delta
+                    disp_structure = self.atoms.copy()
+                    disp_structure.set_positions(disp_positions)
+                    disp_structure.calc = self.calc
+                    disp_structure.get_potential_energy()
+                    if j==0:
+                        disp_structure.write(f"vib1/{i}x-.xyz")
+                    elif j==1:
+                        disp_structure.write(f"vib1/{i}y-.xyz")
+                    elif j==2:
+                        disp_structure.write(f"vib1/{i}z-.xyz")
+        except:
+            pass
+
+    def write_nfforce(self, dir_name, file_name):        
+        with open(file_name, "w") as f:
+            f.write(" &ATOM\n")
+            f.write(f"    {len(self.atoms)}\n")
+            positions = self.atoms.get_positions() / units.Bohr
+            atomic_numbers = self.atoms.get_atomic_numbers()
+            masses = self.atoms.get_masses()
+            for i in range(len(atomic_numbers)):
+                positions_i = positions[i]
+                f.write(f"    {i+1:.0f}   {positions_i[0]:.12f}    {positions_i[1]:.12f}    {positions_i[2]:.12f}  {atomic_numbers[i]:.0f} {masses[i]*1822.89:.4f}\n")
+            f.write(" &END\n")
+            f.write(" &FORCE\n")
+
+        if dir_name == "vib1":
+            files = os.listdir(dir_name)
+            files = sorted(files, key=self.sort_key_vib1)
+        else:
+            files = os.listdir(dir_name)
+            files = sorted(files, key=self.sort_key_vib_other)
+        print("Making sure the structure files are sorted correctly")
+        print(files)
+        for i in range(len(files)):
+            
+            atoms = read(f"{dir_name}/{files[i]}")
+            energy = atoms.get_potential_energy() / units.Hartree
+
+            with open(file_name, "a") as f:
+                f.write(f"     {i+1:.0f}    {energy:.12f}\n")
+            
+            positions = atoms.get_positions() / units.Bohr
+            forces = atoms.get_forces() / (units.Hartree/units.Bohr)
+
+            for j in range(len(positions)):
+                positions_j = positions[j]
+                forces_j = forces[j]
+
+                with open(file_name, "a") as f:
+                    f.write(f"     {j+1:.0f}    {positions_j[0]:.12f}    {positions_j[1]:.12f}    {positions_j[2]:.12f} {forces_j[0]:.12f}  {forces_j[1]:.12f}  {forces_j[2]:.12f} \n")
+
+    def sort_key_vib1(self, s):
+        match = re.match(r"(\d+)([xyz])([+-])\.xyz", s)
+        if match:
+            number = int(match.group(1))
+            axis = match.group(2)
+            sign = match.group(3)
+            return (number, axis, 0 if sign == '+' else 1)  # '+' first, then '-'
+        else:
+            return (float('inf'), '', 0)
+
+    def sort_key_vib_other(self, s):        
+        match = re.match(r"disp(\d+)_(plus|min)\.xyz", s)
+        if match:
+            number = int(match.group(1))
+            sign = match.group(2)
+            return (number, 0 if sign == 'plus' else 1)  # 'plus' before 'min'
+        else:
+            return (float('inf'), 0)
+
+    def read_vib_data_and_calculate_forces(self, foldername, filename):
+        with open(filename, 'r') as f:
+            lines = f.readlines()                
+        
+        positions = self.atoms.get_positions()
+        mode = 3*len(self.indices)
+        for i in range(mode):            
+            current_line = i * (len(self.atoms)+1)
+            factor = lines[current_line].split()            
+            factor = float(factor[1].replace('D', 'E')) * units.Bohr
+
+            disp = copy(positions)
+            for j in range(len(self.atoms)):
+                current_line += 1
+                disp_values = lines[current_line].split()
+                disp[j] += np.array([float(disp_values[1].replace('D', 'E')), float(disp_values[2].replace('D', 'E')), float(disp_values[3].replace('D', 'E'))])*factor *-1
+            disp_atoms = self.atoms.copy()
+            disp_atoms.set_positions(disp)
+            if i > mode - self.Nmode - 1:
+                disp_atoms.calc = self.calc
+                disp_atoms.get_potential_energy()
+            else:
+                E = 0
+                F = np.zeros((len(self.atoms), 3))
+                results = {'energy': E, 'forces': F}
+                calc_sp = SinglePointCalculator(disp_atoms, **results)
+                disp_atoms.set_calculator(calc_sp)
+
+            disp_atoms.write(f"{foldername}/disp{i}_min.xyz")
+
+            current_line = i * (len(self.atoms)+1)
+            disp = copy(positions)            
+            for j in range(len(self.atoms)):
+                current_line += 1
+                disp_values = lines[current_line].split()
+                disp[j] += np.array([float(disp_values[1].replace('D', 'E')), float(disp_values[2].replace('D', 'E')), float(disp_values[3].replace('D', 'E'))])*factor
+            disp_atoms = self.atoms.copy()
+            disp_atoms.set_positions(disp)
+            if i > mode - self.Nmode - 1:
+                disp_atoms.calc = self.calc
+                disp_atoms.get_potential_energy()
+            else:
+                E = 0
+                F = np.zeros((len(self.atoms), 3))
+                results = {'energy': E, 'forces': F}
+                calc_sp = SinglePointCalculator(disp_atoms, **results)
+                disp_atoms.set_calculator(calc_sp)
+
+            disp_atoms.write(f"{foldername}/disp{i}_plus.xyz")
+
+
+    def gif(self, gif_iter):
+        """
+        Main part of the code.
+        """       
+        gif_iter += 1
+
+        if self.from_disp:
+            self.step = 0
+            step = self.step
+            print('\nDisplacement coordinate presupplied.')
+            self.gif_iteration(gif_iter)
+        else:
+            self.step = 1
+            step = self.step
+            print(f'\n###Step : {step}###')
+            print('Displacement in cartesian coordinate.')
+            print('Atomic positions, energy, and forces is written inside vib1.')
+            self.get_forces_of_displacement()
+            self.write_nfforce("vib1", "nfforce_1.data")
+            print("Running vibrational analysis with gif . . .")
+            os.system("gif -f nfforce_1.data -o gif_1.out")
+            os.system("mv vib.data vib_1.data")
+            os.system(f"tail -{5+len(self.indices*3)} gif_1.out")
+            
+            os.system(f"tail -{len(self.indices*3)} gif_1.out > tmp.log")
+            with open(f'tmp.log', 'r') as file:
+                data = file.readlines()
+                data = [line.split() for line in data]
+                data = np.array(data)
+            signs = data[:, 1]
+            signs = np.array([float(i.replace('D', 'E')) for i in signs])
+            hnus = np.array(data[:, 3].astype(float))
+            zpe = 0
+            for i in range(len(hnus)):
+                if signs[i]>=0:
+                    zpe += hnus[i]
+            print(f"Zero point energy = {zpe/2:.3f} meV")
+
+            print("\nFull output of gif is written to gif_1.out.")
+            print("Suggested displacement is written to vib_1.data")   
+            self.gif_iteration(gif_iter-1)
+   
+
+    def gif_iteration(self, gif_iter):
+        for n in range(gif_iter-1):            
+            self.step += 1
+            step = self.step
+            print(f'\n###Step : {step}###')
+            print('Displacement in normal coordiate.')
+
+            print('Atomic positions, energy, and forces is written inside vib1.')
+            
+            try:
+                # Make directory for storing the displacement files
+                os.mkdir(f'vib{step}')
+                self.read_vib_data_and_calculate_forces(f"vib{step}", f"vib_{step-1}.data")                
+            except:
+                pass
+                        
+            self.write_nfforce(f"vib{step}", f"nfforce_{step}.data")
+            print("Running vibrational analysis with gif . . .")
+            os.system(f"gif -f nfforce_{step}.data -o gif_{step}.out")
+            os.system(f"mv vib.data vib_{step}.data")
+            os.system(f"tail -{5+len(self.indices*3)} gif_{step}.out")
+
+            os.system(f"tail -{len(self.indices*3)} gif_{step}.out > tmp.log")
+            with open(f'tmp.log', 'r') as file:
+                data = file.readlines()
+                data = [line.split() for line in data]
+                data = np.array(data)
+            signs = data[:, 1]
+            signs = np.array([float(i.replace('D', 'E')) for i in signs])
+            hnus = np.array(data[:, 3].astype(float))
+            zpe = 0
+            for i in range(len(hnus)):
+                if signs[i]>=0:
+                    zpe += hnus[i]
+            print(f"Zero point energy = {zpe/2:.3f} meV")
+
+            print(f"\nFull output of gif is written to gif_{step}.out.")
+            print(f"Suggested displacement is written to vib_{step}.data")
